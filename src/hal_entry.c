@@ -2,13 +2,16 @@
 
 void R_BSP_WarmStart(bsp_warm_start_event_t event);
 static uint8_t data[0x14]; // data buffer to receive
-#define BUF_LEN (0x02) // buffer length to write
+
 
 static volatile i2c_master_event_t g_master_event = (i2c_master_event_t)RESET_VALUE; //event for call back
 
 void hal_entry(void)
 
 {
+    /*Declare variables to store raw data from GY-521*/
+    float Ax, Ay, Az, Gx, Gy, Gz, tmp;
+
     /* opening IIC master module */
     R_IIC_MASTER_Open(&g_i2c_master_ctrl,&g_i2c_master_cfg);
     uint8_t verify=0x75; //Register to read the GY-521 address
@@ -40,8 +43,8 @@ void hal_entry(void)
 
          /*Write 0x00 to PWR_MGMT_1_REG(0x6B) register to wake the sensor up*/
          R_IIC_MASTER_Open(&g_i2c_master_ctrl,&g_i2c_master_cfg);
-         uint8_t read_buffer[0x02] = {0x6B,0x00};
-         memcpy(data, read_buffer, 0x02);
+         uint8_t PWR_MGMT_1_REG[0x02] = {0x6B,0x00};
+         memcpy(data, PWR_MGMT_1_REG, 0x02);
 
          /*setting master event to reset value*/
          g_master_event = (i2c_master_event_t)RESET_VALUE;
@@ -112,7 +115,101 @@ void hal_entry(void)
          R_IIC_MASTER_Close (&g_i2c_master_ctrl);
 
          APP_PRINT("Configuration Completed");
+
+         /* Read 14 BYTES of data starting from ACCEL_XOUT_H(0x3B) register
+            6 registers(0x3B-0x40) are Accelerometer, 2 registers(0x41-0x43) are Temperature registers, 6 registers(0x44-0x48) are Gyroscope*/
+         R_IIC_MASTER_Open(&g_i2c_master_ctrl,&g_i2c_master_cfg);
+         uint8_t read_buffer_start_reg= 0x3B;
+         g_master_event = (i2c_master_event_t)RESET_VALUE;
+         while(1){
+
+            /*Write ACCEL_XOUT_H(0x3B) register to read*/
+            R_IIC_MASTER_Write(&g_i2c_master_ctrl, &read_buffer_start_reg,0x01, false);
+            while(I2C_MASTER_EVENT_TX_COMPLETE != g_master_event)
+            {
+                ; // Wait till master complete transmit
+            }
+            /*Read ACCEL_XOUT_H(0x3B) register (14 bytes)*/
+            R_IIC_MASTER_Read(&g_i2c_master_ctrl, data, 0x014, false);
+            while(I2C_MASTER_EVENT_TX_COMPLETE != g_master_event)
+            {
+                ; // Wait till master complete transmit
+            }
+
+              /*Read the Accelerometer registers*/
+               int16_t accelerometer_x = (int16_t)((data[0] << 8) | data[1]);
+               int16_t accelerometer_y = (int16_t)((data[2] << 8) | data[3]);
+               int16_t accelerometer_z = (int16_t)((data[4] << 8) | data[5]);
+
+               /*Read the Temperature registers*/
+               int16_t temperature_raw = (int16_t)((data[6] << 8) | data[7]);
+
+               /* Read the Gyroscope registers*/
+               int16_t gyroscope_x = (int16_t)((data[8] << 8) | data[9]);
+               int16_t gyroscope_y = (int16_t)((data[10] << 8) | data[11]);
+               int16_t gyroscope_z = (int16_t)((data[12] << 8) | data[13]);
+
+               /* Formula to convert raw data to physical value for accelerometer
+                * For ±2g divider is 16384.0
+                * For ±4g divider is 8192.0
+                * For ±8g divider is 4096.0
+                * For ±16g divider is 2048.0
+                * */
+               Ax = accelerometer_x/2048.0;
+               Ay = accelerometer_y/2048.0;
+               Az = accelerometer_z/2048.0;
+
+               /* Formula to convert raw data to physical value for Gyroscope */
+               tmp=temperature_raw/340.00+36.53;
+
+               /* Formula to convert raw data to physical value for Temperature
+                * For 250 °/s divider is 131
+                * For 500 °/s divider is 65.5
+                * For 1000 °/s divider is 32.8
+                * For 2000 °/s divider is 16.4
+                *  */
+               Gx = gyroscope_x/16.4;
+               Gy = gyroscope_y/16.4;
+               Gz = gyroscope_z/16.4;
+
+
+               /*Conversion of float to string*/
+               char AccX[10];
+               snprintf(AccX, sizeof(AccX), "%.3f", Ax);
+               char AccY[10];
+               snprintf(AccY, sizeof(AccY), "%.3f", Ay);
+               char AccZ[10];
+               snprintf(AccZ, sizeof(AccZ), "%.3f", Az);
+
+               char GyroX[10];
+               snprintf(GyroX, sizeof(GyroX), "%.3f", Gx);
+               char GyroY[10];
+               snprintf(GyroY, sizeof(GyroY), "%.3f", Gy);
+               char GyroZ[10];
+               snprintf(GyroZ, sizeof(GyroZ), "%.3f", Gz);
+
+               char Temp[10];
+               snprintf(Temp, sizeof(Temp), "%.3f", tmp);
+
+
+              // Print the Accelerometer values
+              APP_PRINT("Accel x: %s \n",AccX);
+              APP_PRINT("Accel y: %s \n",AccY);
+              APP_PRINT("Accel z: %s \n",AccZ);
+
+              // Print the Gyroscope values
+               APP_PRINT("Gyro x: %s \n",GyroX);
+               APP_PRINT("Gyro y: %s \n",GyroY);
+               APP_PRINT("Gyro z: %s \n",GyroZ);
+
+
+              // Print the Temperature values
+               APP_PRINT("Temperature z: %s \n",Temp);
+         }
+
      }
+
+
 }
 
 /*I2C Master Callback function*/
