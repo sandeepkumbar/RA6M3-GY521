@@ -2,7 +2,7 @@
 
 void R_BSP_WarmStart(bsp_warm_start_event_t event);
 static uint8_t data[0x14]; // data buffer to receive
-
+#define TOGGLE_DELAY     (0x01) //Delay of 1 second
 
 static volatile i2c_master_event_t g_master_event = (i2c_master_event_t)RESET_VALUE; //event for call back
 
@@ -11,6 +11,11 @@ void hal_entry(void)
 {
     /*Declare variables to store raw data from GY-521*/
     float Ax, Ay, Az, Gx, Gy, Gz, tmp;
+
+    //LED PINS
+    uint32_t pin=BSP_IO_PORT_01_PIN_00;
+    uint32_t pin1=BSP_IO_PORT_04_PIN_00;
+    uint32_t pin2=BSP_IO_PORT_04_PIN_03;
 
     /* opening IIC master module */
     R_IIC_MASTER_Open(&g_i2c_master_ctrl,&g_i2c_master_cfg);
@@ -124,7 +129,7 @@ void hal_entry(void)
          while(1){
 
             /*Write ACCEL_XOUT_H(0x3B) register to read*/
-            R_IIC_MASTER_Write(&g_i2c_master_ctrl, &read_buffer_start_reg,0x01, false);
+    step1:  R_IIC_MASTER_Write(&g_i2c_master_ctrl, &read_buffer_start_reg,0x01, false);
             while(I2C_MASTER_EVENT_TX_COMPLETE != g_master_event)
             {
                 ; // Wait till master complete transmit
@@ -205,6 +210,54 @@ void hal_entry(void)
 
               // Print the Temperature values
                APP_PRINT("Temperature z: %s \n",Temp);
+
+               /*Creating an sample application using Accelerometer and Temperature values*/
+               /*In this sample application the aeroplane is taken as example
+                *If the aeroplane rotates more than 90 degree on either left or right the user led1 should high
+                *If the aeroplane rotates more than 50 degree on either forward or backward the user led2 should high
+                *If the aeroplane near to ground the user led3 should high
+                *If the temerature in aeroplane is higher than 27c all 3 user led's should high
+                * */
+
+
+               /*Enable the GPIO Pin access*/
+               R_BSP_PinAccessEnable();
+
+               /*Check the temperature value*/
+               if (tmp>27) {
+                   R_BSP_PinWrite((bsp_io_port_pin_t) pin, BSP_IO_LEVEL_HIGH);
+                   R_BSP_PinWrite((bsp_io_port_pin_t) pin1, BSP_IO_LEVEL_HIGH);
+                   R_BSP_PinWrite((bsp_io_port_pin_t) pin2, BSP_IO_LEVEL_HIGH);
+                   goto step1;
+                            } else {
+                                 R_BSP_PinWrite((bsp_io_port_pin_t) pin, BSP_IO_LEVEL_LOW);
+                                 R_BSP_PinWrite((bsp_io_port_pin_t) pin1, BSP_IO_LEVEL_LOW);
+                                 R_BSP_PinWrite((bsp_io_port_pin_t) pin2, BSP_IO_LEVEL_LOW);
+                                    }
+
+               /*x-axis*/
+                if (Ax >= -0.6 && Ax <= 0.6) {
+                    R_BSP_PinWrite((bsp_io_port_pin_t) pin, BSP_IO_LEVEL_LOW);
+                             } else {
+                                 R_BSP_PinWrite((bsp_io_port_pin_t) pin, BSP_IO_LEVEL_HIGH);
+                                    }
+
+                /*y-axis*/
+                if (Ay >= -0.8 && Ay <= 0.8) {
+                    R_BSP_PinWrite((bsp_io_port_pin_t) pin1, BSP_IO_LEVEL_LOW);
+                             } else {
+                                 R_BSP_PinWrite((bsp_io_port_pin_t) pin1, BSP_IO_LEVEL_HIGH);
+                                    }
+
+                /*z-axis*/
+                 if (Az<=0) {
+                     R_BSP_PinWrite((bsp_io_port_pin_t) pin2, BSP_IO_LEVEL_HIGH);
+                             } else {
+                                 R_BSP_PinWrite((bsp_io_port_pin_t) pin2, BSP_IO_LEVEL_LOW);
+                                    }
+
+                 /*1 Millisecond delay*/
+                 R_BSP_SoftwareDelay(TOGGLE_DELAY, BSP_DELAY_UNITS_MILLISECONDS);
          }
 
      }
